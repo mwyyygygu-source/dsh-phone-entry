@@ -140,7 +140,7 @@ export function nextRetry(attempt, { max = MAX_RETRIES, intervalMs = RETRY_INTER
 }
 
 /**
- * no-cors 探测 `<host>/pair-ping`：只要能发出请求就说明地址可达。
+ * CORS 探测 `<host>/phone/hello`：只有拿到 2xx 才算在线（530/断网/超时都是 false）。
  * 超时（默认 4 秒）或网络错误返回 false，绝不抛错。
  */
 export async function probeHost(fetchImpl, host, {
@@ -166,12 +166,14 @@ export async function probeHost(fetchImpl, host, {
   })
   const request = (async () => {
     try {
-      await fetchImpl(`${origin}/pair-ping`, {
-        mode: 'no-cors',
+      // 必须是能读状态的 CORS 请求：no-cors 下 Cloudflare 的 530 错误页也算“有响应”，
+      // 会把已经失效的旧隧道地址误判成在线。
+      const response = await fetchImpl(`${origin}/phone/hello`, {
         cache: 'no-store',
+        credentials: 'omit',
         signal: controller ? controller.signal : undefined,
       })
-      return true
+      return !!response && response.ok === true
     } catch {
       return false
     }
