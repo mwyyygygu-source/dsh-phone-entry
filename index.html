@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="color-scheme" content="dark light" />
+  <title>打开 DSH Phone</title>
+  <style>
+    :root {
+      --bg: #0e1118;
+      --card: #151a25;
+      --line: #272f42;
+      --fg: #e8ebf5;
+      --dim: #98a1b8;
+      --accent: #8ea2ff;
+      --accent-ink: #0e1118;
+      --accent-soft: #222c52;
+      --warn: #f3b44f;
+      --bad: #ff8080;
+      --input: #0a0d14;
+      color-scheme: dark;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f6f7fb;
+        --card: #ffffff;
+        --line: #d8ddec;
+        --fg: #161b2a;
+        --dim: #5a6479;
+        --accent: #3a56d8;
+        --accent-ink: #ffffff;
+        --accent-soft: #e2e8fd;
+        --warn: #9a5b00;
+        --bad: #c23838;
+        --input: #f2f4fa;
+        color-scheme: light;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      margin: 0;
+      padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+      background:
+        radial-gradient(120% 90% at 50% -10%, var(--accent-soft), transparent 62%),
+        var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC",
+        "MiSans", "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    .entry {
+      width: 100%;
+      max-width: 460px;
+    }
+
+    .card {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 28px 22px 20px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--card);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+    }
+
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      border-radius: 14px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 21px;
+      font-weight: 600;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .message {
+      margin: 0;
+      color: var(--dim);
+      font-size: 14px;
+      line-height: 1.65;
+      overflow-wrap: anywhere;
+    }
+
+    .hint {
+      margin: 0;
+      color: var(--warn);
+      font-size: 13px;
+      line-height: 1.6;
+      overflow-wrap: anywhere;
+    }
+
+    .hint.is-bad {
+      color: var(--bad);
+    }
+
+    .paste {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .paste[hidden],
+    .ghost[hidden] {
+      display: none;
+    }
+
+    .paste label {
+      color: var(--dim);
+      font-size: 12px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 88px;
+      padding: 11px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--input);
+      color: var(--fg);
+      font-family: ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      resize: vertical;
+      overflow-wrap: anywhere;
+    }
+
+    textarea:focus {
+      border-color: var(--accent);
+      outline: none;
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .primary,
+    .ghost {
+      min-height: 46px;
+      padding: 0 16px;
+      border-radius: 12px;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .primary {
+      border: 0;
+      background: var(--accent);
+      color: var(--accent-ink);
+    }
+
+    .ghost {
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--fg);
+    }
+
+    .primary:active,
+    .ghost:active {
+      transform: scale(0.99);
+    }
+
+    .foot {
+      margin: 4px 0 0;
+      color: var(--dim);
+      font-size: 11px;
+      line-height: 1.6;
+      overflow-wrap: anywhere;
+    }
+
+    .noscript {
+      padding: 14px 16px;
+      border: 1px solid var(--bad);
+      border-radius: 12px;
+      color: var(--bad);
+      font-size: 14px;
+    }
+
+    @media (max-width: 360px) {
+      .card {
+        padding: 22px 16px 16px;
+      }
+
+      h1 {
+        font-size: 19px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="entry">
+    <section class="card" aria-labelledby="title">
+      <div class="mark" aria-hidden="true">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="13" height="10" rx="2" />
+          <path d="M7 20h6M10 14v6" />
+          <rect x="15.5" y="12.5" width="5.5" height="8.5" rx="1.5" />
+        </svg>
+      </div>
+
+      <h1 id="title">正在打开 DSH Phone…</h1>
+      <p id="message" class="message" role="status" aria-live="polite">
+        正在读取连接信息，请稍候。
+      </p>
+      <p id="hint" class="hint" hidden></p>
+
+      <form id="paste" class="paste" hidden>
+        <label for="link">粘贴手机上的连接</label>
+        <textarea id="link" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false"
+          placeholder="https://…/entry/#g=…&amp;c=…"></textarea>
+        <button type="submit" class="primary">打开连接</button>
+      </form>
+
+      <button id="retry" class="ghost" type="button" hidden>重试</button>
+
+      <p class="foot">
+        连接只在这个浏览器里处理；页面不内置任何密码，也不会把链接内容发给第三方。
+      </p>
+    </section>
+
+    <noscript>
+      <p class="noscript">这个页面需要 JavaScript 才能打开 DSH Phone，请换一个浏览器再试。</p>
+    </noscript>
+  </main>
+
+  <script type="module" src="./entry.js"></script>
+</body>
+</html>
