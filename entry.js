@@ -15,9 +15,25 @@ export const MAX_RETRIES = 10
 
 const WHITESPACE = /[\s\u0000-\u001f\u007f]/
 
+/**
+ * 保存的打开方式：只认 'desktop'，其余（缺省、非法值）都回落 'phone'。
+ */
+export function normalizeMode(value) {
+  return String(value || '').trim().toLowerCase() === 'desktop' ? 'desktop' : 'phone'
+}
+
+/**
+ * fragment 里的 m：只认 phone/desktop；没带或非法返回空串，
+ * 这样“恢复上次连接”时不会把用户已保存的电脑版覆盖回手机版。
+ */
+export function fragmentMode(value) {
+  const text = String(value || '').trim().toLowerCase()
+  return text === 'phone' || text === 'desktop' ? text : ''
+}
+
 /** 解析 location.hash（可带可不带 #）。 */
 export function parseFragment(hash) {
-  const empty = { g: '', c: '', bt: '', fresh: false }
+  const empty = { g: '', c: '', bt: '', fresh: false, m: '' }
   const raw = String(hash || '').replace(/^#/, '').trim()
   if (!raw) return empty
   let params
@@ -35,6 +51,7 @@ export function parseFragment(hash) {
     c: read('c'),
     bt: read('bt'),
     fresh: read('fresh') === '1',
+    m: fragmentMode(read('m')),
   }
 }
 
@@ -90,17 +107,29 @@ export function gistFetchUrl(gistUrl, now = Date.now()) {
   return `${base}${base.includes('?') ? '&' : '?'}t=${value}`
 }
 
-export function loginUrl(host, { code = '', token = '' } = {}) {
+export function loginUrl(host, { code = '', token = '', mode = '' } = {}) {
   const origin = normalizeHost(host)
   if (!origin) return ''
-  if (code) return `${origin}/phone/browser-login#c=${encodeURIComponent(String(code))}`
-  if (token) return `${origin}/phone/browser-login#t=${encodeURIComponent(String(token))}`
+  // 电脑版由隧道登录页决定最终目的地；码登录以后会回到入口页，仍带上无害。
+  const suffix = normalizeMode(mode) === 'desktop' ? '&m=desktop' : ''
+  if (code) {
+    return `${origin}/phone/browser-login#c=${encodeURIComponent(String(code))}${suffix}`
+  }
+  if (token) {
+    return `${origin}/phone/browser-login#t=${encodeURIComponent(String(token))}${suffix}`
+  }
   return ''
 }
 
 export function appUrl(host) {
   const origin = normalizeHost(host)
   return origin ? `${origin}/phone/app/` : ''
+}
+
+/** dsh 自带的电脑版完整界面（同源，不需要额外的鉴权）。 */
+export function desktopUrl(host) {
+  const origin = normalizeHost(host)
+  return origin ? `${origin}/pair-app` : ''
 }
 
 /** 自动重试节拍：返回下一次的 attempt 与等待时间；超过上限返回 null。 */
@@ -153,7 +182,7 @@ export async function probeHost(fetchImpl, host, {
 }
 
 export function readState(storage) {
-  const empty = { g: '', bt: '', lastHost: '' }
+  const empty = { g: '', bt: '', lastHost: '', mode: 'phone' }
   if (!storage || typeof storage.getItem !== 'function') return empty
   try {
     const raw = storage.getItem(STORAGE_KEY)
@@ -164,6 +193,7 @@ export function readState(storage) {
       g: sanitizeGistUrl(data.g),
       bt: typeof data.bt === 'string' ? data.bt : '',
       lastHost: normalizeHost(data.lastHost),
+      mode: normalizeMode(data.mode),
     }
   } catch {
     return empty
@@ -178,6 +208,7 @@ export function writeState(storage, state) {
       g: sanitizeGistUrl(value.g),
       bt: typeof value.bt === 'string' ? value.bt : '',
       lastHost: normalizeHost(value.lastHost),
+      mode: normalizeMode(value.mode),
     }))
     return true
   } catch {
@@ -244,6 +275,8 @@ function boot() {
   const linkInput = document.getElementById('link')
   if (!titleNode || !messageNode || !hintNode || !retryButton || !pasteForm || !linkInput) return
 
+  const modeButtons = Array.from(document.querySelectorAll('[data-mode]'))
+
   const storage = safeStorage()
   let state = readState(storage)
   let attempt = 0
@@ -251,6 +284,25 @@ function boot() {
   let activeRun = 0
   let action = null
   let retryHandler = null
+  let restartFlow = null
+
+  function syncMode() {
+    for (const button of modeButtons) {
+      const on = button.dataset.mode === state.mode
+      button.classList.toggle('is-on', on)
+      button.setAttribute('aria-pressed', on ? 'true' : 'false')
+    }
+  }
+
+  function chooseMode(mode) {
+    if (mode !== 'phone' && mode !== 'desktop') return
+    if (state.mode === mode) return
+    state = { ...state, mode }
+    writeState(storage, state)
+    syncMode()
+    // 重新开始当前流程；activeRun 会让之前那一次运行自然失效，避免并发。
+    if (typeof restartFlow === 'function') void restartFlow()
+  }
 
   function clearTimer() {
     if (timer !== null) {
@@ -278,6 +330,7 @@ function boot() {
   function showInput(text) {
     clearTimer()
     activeRun += 1
+    restartFlow = null
     setView({
       heading: '打开手机里的连接',
       text: text || '请在手机 App 的设置里点“添加浏览器”，把连接粘贴到这里打开。',
@@ -406,6 +459,10 @@ function boot() {
     return runResolve()
   }
 
+  function enterApp(host) {
+    return state.mode === 'desktop' ? desktopUrl(host) : appUrl(host)
+  }
+
   async function startCodeLogin(code) {
     if (!state.g) {
       setView({
@@ -416,10 +473,12 @@ function boot() {
       })
       return
     }
-    await resolveWithRetry((host) => go(loginUrl(host, { code })))
+    await resolveWithRetry((host) => go(loginUrl(host, { code, mode: state.mode })))
   }
 
   async function startTokenLogin() {
+    const id = ++activeRun
+    clearTimer()
     if (!state.bt) {
       showInput('登录状态已失效，请在手机上重新“添加浏览器”，把连接粘贴到这里打开。')
       return
@@ -427,8 +486,9 @@ function boot() {
     if (state.lastHost) {
       setView({ heading: '正在连接…', text: '正在确认上次的电脑地址。' })
       const ok = await probeHost(fetch, state.lastHost, { timeoutMs: LAST_HOST_PROBE_MS })
+      if (id !== activeRun) return
       if (ok) {
-        go(loginUrl(state.lastHost, { token: state.bt }))
+        go(loginUrl(state.lastHost, { token: state.bt, mode: state.mode }))
         return
       }
     }
@@ -441,13 +501,13 @@ function boot() {
       })
       return
     }
-    await resolveWithRetry((host) => go(loginUrl(host, { token: state.bt })))
+    await resolveWithRetry((host) => go(loginUrl(host, { token: state.bt, mode: state.mode })))
   }
 
   async function startFresh() {
-    // 登录页刚在这个 host 上写了 cookie，直接进手机网页即可。
+    // 登录页刚在这个 host 上写了 cookie，直接进已选好的界面即可。
     if (state.lastHost) {
-      go(appUrl(state.lastHost))
+      go(enterApp(state.lastHost))
       return
     }
     if (!state.g) {
@@ -459,13 +519,20 @@ function boot() {
       })
       return
     }
-    await resolveWithRetry((host) => go(appUrl(host)))
+    await resolveWithRetry((host) => go(enterApp(host)))
   }
 
   async function handleFragment(fragment) {
     activeRun += 1
     clearTimer()
     const intent = entryIntent(fragment, state)
+
+    // fragment 里的 m 优先于已保存的 mode；没带/非法则不覆盖已保存的选择。
+    if (fragment.m === 'phone' || fragment.m === 'desktop') {
+      state = { ...state, mode: fragment.m }
+      writeState(storage, state)
+      syncMode()
+    }
 
     if (fragment.g) {
       const gist = sanitizeGistUrl(fragment.g)
@@ -484,9 +551,19 @@ function boot() {
     if (fragment.bt) state = { ...state, bt: fragment.bt }
     writeState(storage, state)
 
-    if (intent.kind === 'code') return startCodeLogin(intent.code)
-    if (intent.kind === 'fresh') return startFresh()
-    if (intent.kind === 'token' || intent.kind === 'resume') return startTokenLogin()
+    if (intent.kind === 'code') {
+      restartFlow = () => handleFragment(fragment)
+      return startCodeLogin(intent.code)
+    }
+    if (intent.kind === 'fresh') {
+      restartFlow = () => handleFragment(fragment)
+      return startFresh()
+    }
+    if (intent.kind === 'token' || intent.kind === 'resume') {
+      restartFlow = () => handleFragment(fragment)
+      return startTokenLogin()
+    }
+    restartFlow = null
     showInput('')
     return undefined
   }
@@ -522,12 +599,18 @@ function boot() {
     return parsed
   }
 
+  for (const button of modeButtons) {
+    button.addEventListener('click', () => chooseMode(button.dataset.mode))
+  }
+  syncMode()
+
   const fragment = takeFragment()
-  if (fragment.c || fragment.bt || fragment.g) {
+  if (fragment.c || fragment.bt || fragment.g || fragment.m) {
     void handleFragment(fragment)
     return
   }
   if (state.bt) {
+    restartFlow = () => startTokenLogin()
     void startTokenLogin()
     return
   }
